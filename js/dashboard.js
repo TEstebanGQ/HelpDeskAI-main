@@ -1,6 +1,10 @@
 /**
- * HelpDesk AI — dashboard.js
- * Tickets dashboard logic: search, filter, display, modal
+ * HelpDesk AI — dashboard.js (FIXED)
+ * Fixes:
+ *  1. els se inicializa DENTRO de init() para garantizar que el DOM existe
+ *  2. openModal usa getElementById en tiempo de ejecución (no caché)
+ *  3. Manejo de errores con try/catch alrededor del innerHTML
+ *  4. updateStats busca el .sp-num de forma segura
  */
 
 'use strict';
@@ -20,39 +24,44 @@
     }
   };
 
-  // ===== DOM REFS =====
-  var els = {
-    grid: document.getElementById('ticketsGrid'),
-    noResults: document.getElementById('noResults'),
-    searchInput: document.getElementById('searchInput'),
-    searchClear: document.getElementById('searchClear'),
-    filterToggle: document.getElementById('filterToggle'),
-    filterRow: document.getElementById('filterRow'),
-    filterEstado: document.getElementById('filterEstado'),
-    filterPrioridad: document.getElementById('filterPrioridad'),
-    filterCategoria: document.getElementById('filterCategoria'),
-    clearFilters: document.getElementById('clearFilters'),
-    viewGrid: document.getElementById('viewGrid'),
-    viewList: document.getElementById('viewList'),
-    ticketLookup: document.getElementById('ticketLookup'),
-    lookupBtn: document.getElementById('lookupBtn'),
-    ticketDetailPanel: document.getElementById('ticketDetailPanel'),
-    tdpClose: document.getElementById('tdpClose'),
-    modalOverlay: document.getElementById('modalOverlay'),
-    modal: document.getElementById('ticketModal'),
-    modalClose: document.getElementById('modalClose'),
-    modalClosBtn: document.getElementById('modalClosBtn'),
-    modalTitle: document.getElementById('modalTitle'),
-    modalTicketNum: document.getElementById('modalTicketNum'),
-    modalBody: document.getElementById('modalBody'),
-    statTotal: document.getElementById('statTotal'),
-    statOpen: document.getElementById('statOpen'),
-    statProgress: document.getElementById('statProgress'),
-    statResolved: document.getElementById('statResolved')
-  };
+  // ===== DOM REFS — se asignan en init() =====
+  var els = {};
+
+  function initEls() {
+    els = {
+      grid:             document.getElementById('ticketsGrid'),
+      noResults:        document.getElementById('noResults'),
+      searchInput:      document.getElementById('searchInput'),
+      searchClear:      document.getElementById('searchClear'),
+      filterToggle:     document.getElementById('filterToggle'),
+      filterRow:        document.getElementById('filterRow'),
+      filterEstado:     document.getElementById('filterEstado'),
+      filterPrioridad:  document.getElementById('filterPrioridad'),
+      filterCategoria:  document.getElementById('filterCategoria'),
+      clearFilters:     document.getElementById('clearFilters'),
+      viewGrid:         document.getElementById('viewGrid'),
+      viewList:         document.getElementById('viewList'),
+      ticketLookup:     document.getElementById('ticketLookup'),
+      lookupBtn:        document.getElementById('lookupBtn'),
+      ticketDetailPanel:document.getElementById('ticketDetailPanel'),
+      tdpClose:         document.getElementById('tdpClose'),
+      modalOverlay:     document.getElementById('modalOverlay'),
+      modal:            document.getElementById('ticketModal'),
+      modalClose:       document.getElementById('modalClose'),
+      modalClosBtn:     document.getElementById('modalClosBtn'),
+      modalTitle:       document.getElementById('modalTitle'),
+      modalTicketNum:   document.getElementById('modalTicketNum'),
+      modalBody:        document.getElementById('modalBody'),
+      statTotal:        document.getElementById('statTotal'),
+      statOpen:         document.getElementById('statOpen'),
+      statProgress:     document.getElementById('statProgress'),
+      statResolved:     document.getElementById('statResolved')
+    };
+  }
 
   // ===== INIT =====
   function init() {
+    initEls(); // ← primero inicializar refs
     loadTickets();
     bindEvents();
   }
@@ -78,11 +87,11 @@
     els.grid.innerHTML = '';
 
     if (state.filtered.length === 0) {
-      els.noResults.hidden = false;
+      if (els.noResults) els.noResults.hidden = false;
       return;
     }
 
-    els.noResults.hidden = true;
+    if (els.noResults) els.noResults.hidden = true;
 
     state.filtered.forEach(function(ticket, index) {
       var card = createTicketCard(ticket, index);
@@ -101,11 +110,10 @@
     card.setAttribute('tabindex', '0');
     card.setAttribute('aria-label', 'Ver detalles del ticket ' + ticket.ticket_number);
 
+    var sanitize = window.HelpDeskUtils ? HelpDeskUtils.sanitize : function(s) { return s || '—'; };
     var date = window.HelpDeskUtils
       ? HelpDeskUtils.formatDate(ticket.fecha_creacion)
       : new Date(ticket.fecha_creacion).toLocaleDateString('es-CO');
-
-    var sanitize = window.HelpDeskUtils ? HelpDeskUtils.sanitize : function(s) { return s || '—'; };
 
     card.innerHTML =
       '<div class="ti-header">' +
@@ -140,15 +148,23 @@
 
   // ===== UPDATE STATS =====
   function updateStats() {
-    var total = state.tickets.length;
-    var open = state.tickets.filter(function(t) { return t.estado === 'Abierto'; }).length;
-    var progress = state.tickets.filter(function(t) { return t.estado === 'En progreso'; }).length;
-    var resolved = state.tickets.filter(function(t) { return t.estado === 'Resuelto'; }).length;
+    var counts = {
+      total:    state.tickets.length,
+      open:     state.tickets.filter(function(t) { return t.estado === 'Abierto'; }).length,
+      progress: state.tickets.filter(function(t) { return t.estado === 'En progreso'; }).length,
+      resolved: state.tickets.filter(function(t) { return t.estado === 'Resuelto'; }).length
+    };
 
-    if (els.statTotal) els.statTotal.querySelector('.sp-num').textContent = total;
-    if (els.statOpen) els.statOpen.querySelector('.sp-num').textContent = open;
-    if (els.statProgress) els.statProgress.querySelector('.sp-num').textContent = progress;
-    if (els.statResolved) els.statResolved.querySelector('.sp-num').textContent = resolved;
+    function setNum(el, val) {
+      if (!el) return;
+      var num = el.querySelector('.sp-num');
+      if (num) num.textContent = val;
+    }
+
+    setNum(els.statTotal,    counts.total);
+    setNum(els.statOpen,     counts.open);
+    setNum(els.statProgress, counts.progress);
+    setNum(els.statResolved, counts.resolved);
   }
 
   // ===== FILTER & SEARCH =====
@@ -157,7 +173,6 @@
     var f = state.filters;
 
     state.filtered = state.tickets.filter(function(ticket) {
-      // Search
       if (query) {
         var searchable = [
           ticket.ticket_number,
@@ -168,19 +183,11 @@
           ticket.estado,
           ticket.categoria_ia
         ].join(' ').toLowerCase();
-
         if (!searchable.includes(query)) return false;
       }
-
-      // Estado filter
-      if (f.estado && ticket.estado !== f.estado) return false;
-
-      // Prioridad filter
+      if (f.estado    && ticket.estado    !== f.estado)    return false;
       if (f.prioridad && ticket.prioridad !== f.prioridad) return false;
-
-      // Categoría filter
       if (f.categoria && !(ticket.categoria_ia || '').includes(f.categoria)) return false;
-
       return true;
     });
 
@@ -189,17 +196,28 @@
 
   // ===== OPEN MODAL =====
   function openModal(ticket) {
-    if (!els.modalOverlay || !els.modal) return;
+    // Re-obtener refs en tiempo de ejecución por si acaso
+    var overlay   = document.getElementById('modalOverlay');
+    var body      = document.getElementById('modalBody');
+    var titleEl   = document.getElementById('modalTitle');
+    var numEl     = document.getElementById('modalTicketNum');
 
-    var sanitize = window.HelpDeskUtils ? HelpDeskUtils.sanitize : function(s) { return s || '—'; };
-    var formatDate = window.HelpDeskUtils ? HelpDeskUtils.formatDate : function(d) { return new Date(d).toLocaleDateString('es-CO'); };
+    if (!overlay || !body) {
+      console.error('[Dashboard] No se encontró #modalOverlay o #modalBody en el DOM.');
+      return;
+    }
 
-    if (els.modalTitle) els.modalTitle.textContent = ticket.incidencia + ' — ' + ticket.area;
-    if (els.modalTicketNum) els.modalTicketNum.textContent = ticket.ticket_number;
+    var sanitize   = window.HelpDeskUtils ? HelpDeskUtils.sanitize   : function(s) { return s || '—'; };
+    var formatDate = window.HelpDeskUtils ? HelpDeskUtils.formatDate  : function(d) { return new Date(d).toLocaleDateString('es-CO'); };
 
-    if (els.modalBody) {
-      els.modalBody.innerHTML =
-        // Información del solicitante
+    // Título y número
+    if (titleEl) titleEl.textContent = (ticket.incidencia || '—') + ' — ' + (ticket.area || '—');
+    if (numEl)   numEl.textContent   = ticket.ticket_number || '';
+
+    // Construir HTML del body
+    try {
+      body.innerHTML =
+        // Datos del solicitante
         '<div class="modal-section">' +
           '<h4 class="modal-section-title">Datos del solicitante</h4>' +
           '<div class="modal-fields">' +
@@ -273,22 +291,27 @@
             '</div>' +
           '</div>' +
         '</div>';
+    } catch (e) {
+      console.error('[Dashboard] Error al construir modal body:', e);
+      body.innerHTML = '<p style="color:#fca5a5;padding:1rem;">Error al cargar los detalles del ticket.</p>';
     }
 
-    els.modalOverlay.hidden = false;
+    // Mostrar overlay
+    overlay.hidden = false;
     document.body.style.overflow = 'hidden';
 
-    // Focus trap
+    // Focus al botón de cierre
     setTimeout(function() {
-      var closeBtn = els.modal.querySelector('.modal-close');
+      var closeBtn = document.getElementById('modalClose');
       if (closeBtn) closeBtn.focus();
     }, 100);
   }
 
   // ===== CLOSE MODAL =====
   function closeModal() {
-    if (els.modalOverlay) {
-      els.modalOverlay.hidden = true;
+    var overlay = document.getElementById('modalOverlay');
+    if (overlay) {
+      overlay.hidden = true;
       document.body.style.overflow = '';
     }
   }
@@ -338,7 +361,7 @@
 
     if (els.searchClear) {
       els.searchClear.addEventListener('click', function() {
-        els.searchInput.value = '';
+        if (els.searchInput) els.searchInput.value = '';
         state.searchQuery = '';
         els.searchClear.hidden = true;
         applyFilters();
@@ -378,11 +401,11 @@
       els.clearFilters.addEventListener('click', function() {
         state.filters = { estado: '', prioridad: '', categoria: '' };
         state.searchQuery = '';
-        if (els.filterEstado) els.filterEstado.value = '';
+        if (els.filterEstado)    els.filterEstado.value    = '';
         if (els.filterPrioridad) els.filterPrioridad.value = '';
         if (els.filterCategoria) els.filterCategoria.value = '';
-        if (els.searchInput) els.searchInput.value = '';
-        if (els.searchClear) els.searchClear.hidden = true;
+        if (els.searchInput)     els.searchInput.value     = '';
+        if (els.searchClear)     els.searchClear.hidden    = true;
         applyFilters();
       });
     }
@@ -391,17 +414,17 @@
     if (els.viewGrid) {
       els.viewGrid.addEventListener('click', function() {
         state.view = 'grid';
-        els.grid.classList.remove('list-view');
+        if (els.grid) els.grid.classList.remove('list-view');
         els.viewGrid.classList.add('view-btn--active');
-        els.viewList.classList.remove('view-btn--active');
+        if (els.viewList) els.viewList.classList.remove('view-btn--active');
       });
     }
     if (els.viewList) {
       els.viewList.addEventListener('click', function() {
         state.view = 'list';
-        els.grid.classList.add('list-view');
+        if (els.grid) els.grid.classList.add('list-view');
         els.viewList.classList.add('view-btn--active');
-        els.viewGrid.classList.remove('view-btn--active');
+        if (els.viewGrid) els.viewGrid.classList.remove('view-btn--active');
       });
     }
 
@@ -415,20 +438,17 @@
       });
     }
 
-    // Modal close
-    if (els.modalClose) {
-      els.modalClose.addEventListener('click', closeModal);
-    }
-    if (els.modalClosBtn) {
-      els.modalClosBtn.addEventListener('click', closeModal);
-    }
-    if (els.modalOverlay) {
-      els.modalOverlay.addEventListener('click', function(e) {
-        if (e.target === els.modalOverlay) closeModal();
-      });
-    }
+    // Modal close — usar getElementById directo para evitar refs viejas
+    document.addEventListener('click', function(e) {
+      if (e.target && (e.target.id === 'modalClose' || e.target.id === 'modalClosBtn')) {
+        closeModal();
+      }
+      if (e.target && e.target.id === 'modalOverlay') {
+        closeModal();
+      }
+    });
 
-    // Keyboard
+    // Keyboard ESC
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeModal();
     });
